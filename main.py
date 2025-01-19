@@ -35,8 +35,6 @@ if __name__ == "__main__":
         if config["credentials"][el] is not None:
             kc.add_key(el, config["credentials"][el])
     client = OpenAI(api_key=kc["openai"])  
-
-
     
     output_dir = Path(config['output']['output_dir'])
     if not output_dir.exists():
@@ -71,7 +69,7 @@ if __name__ == "__main__":
             for depth, breadth in dimensions:
                 subfolder = f'{var}_d{depth}_b{breadth}'
                 results_folder = output_dir/f"instance{instance_idx}"/subfolder
-
+                
                  
                 # down the hole we go.
                 refinement(config, 

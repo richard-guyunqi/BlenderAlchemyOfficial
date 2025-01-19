@@ -57,7 +57,9 @@ class GeneralAgent(Agent):
             f.write(p_ans.code)
         
         # now run the blender program
-        blender_step(config, blender_file, blender_script, code_path, render_path)
+        # blender_step(config, blender_file, blender_script, code_path, render_path)
+        blender_step(config["run_config"]["blender_command"], blender_file, blender_script, code_path, render_path, merge_all_renders=True, merge_dir_into_image=True)
+
         return code_path, render_path
 
     @staticmethod
@@ -71,8 +73,31 @@ class EditCodeAgent(object):
     Instead of rewriting code from scratch, this agent edits code by specifying before and after code blocks.
     """
     def __init__(self, api_key:str, task:TaskSpec,
-                 vision_model:str="gpt-4-vision-preview",):
+                 vision_model:str="gpt-4o",):
         
+        self.brainstorm_model_name = vision_model
+        self.code_delta_model_name = vision_model
+        self.task = task
+
+        if vision_model == 'gemini-1.5-flash':
+            self.code_delta_model_name = 'gemini-1.5-flash'
+        
+        if vision_model == 'QwenLlama':
+            self.brainstorm_model_name = 'Qwen/Qwen2-VL-7B-Instruct-AWQ'
+            self.code_delta_model_name = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+
+        if vision_model == 'PhiLlama':
+            self.brainstorm_model_name = 'microsoft/Phi-3.5-vision-instruct'
+            self.code_delta_model_name = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+
+        if vision_model == 'MiniCPMLlama':
+            self.brainstorm_model_name = 'openbmb/MiniCPM-V-2_6-int4'
+            self.code_delta_model_name = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+
+        if vision_model == 'InternLlama':
+            self.brainstorm_model_name = 'OpenGVLab/InternVL2-8B'
+            self.code_delta_model_name = 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+
         # we break  this tasks into two substeps:
         # 1) brainstorming the changes that we require to the code
         self.brainstorming_task = TaskSpec(
@@ -85,7 +110,7 @@ class EditCodeAgent(object):
         self.brainstorming_model = Agent(
                                     api_key, 
                                     task=self.brainstorming_task, 
-                                    vision_model=vision_model).visual_interface
+                                    vision_model=self.brainstorm_model_name).visual_interface
 
         # ...and 2) actually predicting the line-by-line changes that are needed.
         self.code_delta_task = TaskSpec(
@@ -98,7 +123,7 @@ class EditCodeAgent(object):
         self.code_delta_model = Agent(
                                     api_key,
                                     task=self.code_delta_task,
-                                    vision_model=vision_model).visual_interface
+                                    vision_model=self.code_delta_model_name).visual_interface
                                 
     def think(self, question:Question,
                 num_tokens: int, agent_idx=None) -> ParsedAnswer:
@@ -111,7 +136,15 @@ class EditCodeAgent(object):
         
         # step 1: ask the brainstormer to create a plan
         appended_question="""
-Describe, in a bullet-point list (using * as the bullet points), which lines you would change (quote them in python code blocks) and how you would change them. Every item of the list should reference a line of code and how it should be changed.
+Describe, in a bullet-point list (using * as the bullet points), the biggest visual difference, which lines you would change (quote them in python code blocks) and how you would change them. Every item of the list should reference ONLY ONE LINE OR A FEW LINES of code and how it should be changed. DO NOT CITE MORE THAN 5 LINES. Make AT MOST 5 such changes, no more than 5. Return in the format below:
+        @Answer-format-begin
+            A new-line separated bulletpoint list that follows the following format:
+                
+            Example:
+            * first item
+            * second item
+            ...etc
+        @Answer-format-end
 """
         question = question + Question([appended_question])
 
@@ -145,12 +178,15 @@ Example:
 
 Before:
 ```python
+
 a = 1
 ```
 After:
 ```python
 a = 2 
 ```
+NOTE THAT DO NOT COPY-PASTE THE WHOLE ORIGINAL CODE, WHICH IS TOO LONG. JUST INDICATE THE CHANEGS.
+
 """
                 delta_question = Question(
                 [
@@ -222,7 +258,9 @@ a = 2
             f.write(p_ans.code)
         
         # now run the blender program
-        blender_step(config, blender_file, blender_script, code_path, render_path)
+        # blender_step(config, blender_file, blender_script, code_path, render_path)
+        blender_step(config["run_config"]["blender_command"], blender_file, blender_script, code_path, render_path, merge_all_renders=True, merge_dir_into_image=True)
+
         return code_path, render_path
 
     @staticmethod

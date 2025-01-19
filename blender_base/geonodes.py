@@ -36,6 +36,7 @@ if __name__ == "__main__":
         raise ValueError
     
     # render, and save.
+    bpy.context.scene.camera = bpy.data.objects['Camera1']
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.filepath = rendering_fpath
     bpy.ops.render.render(write_still=True)

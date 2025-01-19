@@ -10,6 +10,7 @@ from enum import Enum
 from bson import ObjectId
 from PIL import Image
 import random
+import shutil
 from loguru import logger
 import threading
 import time
@@ -89,11 +90,11 @@ def tree_branch(branching_factor:int, question_to_agent:Question, agent:Agent,
                     # blender execution failed, count failure.
                     # code_exec_exceptions += 1 
                     #logger.warning(f"thread {idx} code execution failed.")
-                    continue
+                    pass
             if not done: 
                 code_path = None
                 render_path = None 
-            results[idx] = (code_path, render_path, p_ans.raw)  # The in-place modification of results with the 3-tuple
+            results[idx] = (code_path, render_path, 'placeholder')  # The in-place modification of results with the 3-tuple
         logger.info(f"thread {idx} released semaphore lock.")
 
     # FOR DEBUGGING
@@ -231,7 +232,8 @@ def get_top_candidate(candidates, target, judge, task_setting:TaskSetting, confi
                         for winner in results if winner is not None]
 
     if not(len(winners) > 0 or num_candidates//2 == 0):
-        raise ValueError("All comparisons between samples seem to have failed.")
+        # raise ValueError("All comparisons between samples seem to have failed.")
+        print("All comparisons between samples seem to have failed.")
     
     if odd_one_out is not None:
         winners += [odd_one_out]
@@ -242,6 +244,8 @@ def get_top_candidate(candidates, target, judge, task_setting:TaskSetting, confi
                     use_vision=use_vision) 
         return winner, intermediates + _intermediates
     else:
+        if not winners:
+            winners.append((None, None))
         return winners[0], intermediates # the only winner
 
 
@@ -250,31 +254,132 @@ def make_if_nonexistent(folder):
         os.makedirs(folder)
     return folder
 
+# def blender_step(config, blender_file, blender_script, script_path, render_path, 
+#                 verify_render_path=True):
 
-def blender_step(config, blender_file, blender_script, script_path, render_path, 
-                verify_render_path=True):
+#     '''
+#     Generate a rendered image with given script_path at render_path
+#     '''
 
-    '''
-    Generate a rendered image with given script_path at render_path
-    '''
+#     if verify_render_path  and os.path.isfile(render_path):
+#         raise ValueError(f"verify_render_path is True but {render_path} already exists before blender process.")
 
-    if verify_render_path  and os.path.isfile(render_path):
-        raise ValueError(f"verify_render_path is True but {render_path} already exists before blender process.")
-
-    assert blender_file is not None and blender_script is not None
+#     assert blender_file is not None and blender_script is not None
     
+#     # Enter the blender code
+#     command = [config["run_config"]["blender_command"], "--background", blender_file, 
+#                     "--python", blender_script, 
+#                     "--", script_path, render_path]
+#     command = ' '.join(command)
+#     command_run = subprocess.run(command, shell=True, check=True)
+    
+#     if verify_render_path  and not os.path.isfile(render_path):
+#         logger.warning(f"The following bpy script didn't run correctly in blender:{script_path}")
+#         raise CodeExecutionException 
+
+#     return None
+
+
+def merge_images_in_directory(directory, saved_to_local=True, merge_dir_into_image=True):
+    '''
+    Merge all images in the given directory into a single image.
+    '''
+    # Get a list of image paths
+    image_paths = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(('png', 'jpg', 'jpeg', 'webp'))]
+
+    if not image_paths:
+        new_image = None
+        images=[]
+        shutil.rmtree(directory)
+        raise CodeExecutionException
+    else:
+        # Open images and get their sizes
+        images = [Image.open(img) for img in image_paths]
+        widths, heights = zip(*(i.size for i in images))
+
+        # Calculate total size for the final image
+        total_width = sum(widths)
+        max_height = max(heights)
+
+        # Create a new blank image with the calculated size
+        new_image = Image.new('RGB', (total_width, max_height))
+
+    # Paste all images into the new image
+    x_offset = 0
+    for img in images:
+        new_image.paste(img, (x_offset, 0))
+        x_offset += img.width
+
+    if saved_to_local:
+        # Save the final image to local
+        if not merge_dir_into_image:    # Preserve the dir, adding new image to the dir
+            merged_image_path = os.path.join(directory, 'merged_image.png')
+        else:   # Delete the dir, and save the merged image as the name of the dir
+            shutil.rmtree(directory)
+            merged_image_path = directory
+
+        if new_image:
+            new_image.save(merged_image_path)
+            print(f"Merged image saved to {merged_image_path}")
+        return new_image, merged_image_path
+    else:
+        return new_image, None
+
+
+
+def blender_step(infinigen_installation_path, blender_file_path, blender_render_script_path, script_path, render_dir, merge_all_renders=False, replace_if_overlap=True, merge_dir_into_image=False):
+
+    '''
+    Generate a rendered image with given script_path at render_dir.
+
+    Inputs:
+        blender_file_path: file path to the .blend base file
+        blender_render_script_path: file path to the render script of blender scene
+        script_path: file path to the script we want to render
+        render_dir: dir path to save the rendered images
+        merge_all_renders[optional]: True will merge all images in render_dir
+        replace_if_overlap[optional]: False will skip if the render_dir exists and is non-empty, and True will proceed replace every overlapping render 
+    '''
+
+    def is_directory_empty(directory_path):
+        # Check if the directory exists and is indeed a directory
+        if not os.path.isdir(directory_path):
+            raise ValueError(f"{directory_path} is not a valid directory path.")
+    
+        # List the contents of the directory
+        return len(os.listdir(directory_path)) == 0
+
+    assert blender_file_path is not None and blender_render_script_path is not None
+
+    if replace_if_overlap:  # Just overwrite the files
+        os.makedirs(render_dir, exist_ok=True)
+    else:   
+        if os.path.isdir(render_dir) and not is_directory_empty(render_dir): # If such dir already exists and is non-empty, skip
+            return None 
+
+        os.makedirs(render_dir, exist_ok=True)
+
+    print('blender_render_script_path: ', blender_render_script_path)
+    print('script_path: ', script_path)
+    print('render_dir: ', render_dir)
+
     # Enter the blender code
-    command = [config["run_config"]["blender_command"], "--background", blender_file, 
-                    "--python", blender_script, 
-                    "--", script_path, render_path]
+    command = [infinigen_installation_path, "--background", blender_file_path, 
+                    "--python", blender_render_script_path, 
+                    "--", script_path, render_dir]
     command = ' '.join(command)
     command_run = subprocess.run(command, shell=True, check=True)
-    
-    if verify_render_path  and not os.path.isfile(render_path):
-        logger.warning(f"The following bpy script didn't run correctly in blender:{script_path}")
-        raise CodeExecutionException 
 
-    return None
+    # if is_directory_empty(render_dir):
+    #     print(f"The following bpy script didn't run correctly in blender:{script_path}")
+    #     return False
+    #     # raise CodeExecutionException 
+    # else:
+    #     if merge_all_renders:
+    merge_images_in_directory(render_dir, saved_to_local=True, merge_dir_into_image=merge_dir_into_image)
+    return os.path.exists(render_dir)
+
+    return True
 
 
 def refinement(config, credentials, breadth, depth, blender_file, blender_script, 
@@ -311,22 +416,23 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
     make_if_nonexistent(render_save)
     make_if_nonexistent(thoughtprocess_save)
             
-
-    
     init_render_file = os.path.join(output_folder, "init_render.png")      # The original blender rendered image
     target_code = config["input"]["target_code"]       # Target bpy code
     target_render_file = config["input"]["input_image"]     # Dalle generated pseudo-target image based on the text file
     
     assert init_code is not None
     if not os.path.exists(init_render_file):
-        blender_step(config, blender_file, blender_script, init_code, init_render_file, verify_render_path=True)
-        
+        # blender_step(config, blender_file, blender_script, init_code, init_render_file, verify_render_path=True)        
+        blender_step(config["run_config"]["blender_command"], blender_file, blender_script, init_code, init_render_file, merge_all_renders=True, merge_dir_into_image=True)
+
     init_image = Image.open(init_render_file)      # Keep an record of original image
 
 
     if target_render_file is not None:      # If provided with a path to ideal target image
         if target_code is not None and not os.path.exists(target_render_file):  # If target_code is also provided and no image provided
-            blender_step(config, blender_file, blender_script, target_code, target_render_file,  verify_render_path=True)  # Render and overwrite the dalle generated images
+            # blender_step(config, blender_file, blender_script, target_code, target_render_file,  verify_render_path=True)  # Render and overwrite the dalle generated images
+            blender_step(config["run_config"]["blender_command"], blender_file, blender_script, target_code, target_render_file, merge_all_renders=True, merge_dir_into_image=True)
+
         target_image = Image.open(target_render_file)      
     else:
         target_image = None
@@ -354,20 +460,53 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
         agent = thinker_class_type (credentials["claude"], code_editing_task, vision_model="claude")
         thinker_is_visual = (run_config["edit_generator_type"] == "ClaudeV")
 
+    elif run_config["edit_generator_type"] == "Intern":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='OpenGVLab/InternVL2-8B')
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "InternLlama":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "Qwen":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='Qwen/Qwen2-VL-7B-Instruct-AWQ')
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "QwenLlama":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='Qwen/Qwen2-VL-7B-Instruct-AWQ')
+        agent = param_tuner
+        thinker_is_visual = True
+
     elif run_config["edit_generator_type"] in ("gemma", "mistral", "llama2"):
         param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
-        agent = thinker_class_type (None, code_editing_task, vision_model=run_config["edit_generator_type"])
+        agent = param_tuner
         thinker_is_visual = False
     else:
         raise ValueError(f"Invalid generator: {run_config['edit_generator_type']}")
 
     # Initialize the state evaluator (pruning task)
     if run_config["state_evaluator_type"] == "GPT4V":
-        judge = GeneralAgent(credentials["openai"], pruning_task)
+        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4-turbo")
         evaluator_is_visual = True
     elif run_config["state_evaluator_type"] == "GPT4":
         judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4")
         evaluator_is_visual = False
+    elif run_config["state_evaluator_type"] == "GPT4o":
+        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4o")
+        evaluator_is_visual = True
+    elif run_config["state_evaluator_type"] == "Intern":
+        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model='OpenGVLab/InternVL2-8B')
+        evaluator_is_visual = True
+    elif run_config["state_evaluator_type"] == "InternLlama":
+        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model='OpenGVLab/InternVL2-8B')
+        evaluator_is_visual = True
         # tasks stay the same
     elif run_config["state_evaluator_type"] in ("gemma", "mistral", "llama2"):
         judge = GeneralAgent(None, pruning_task, vision_model=run_config["state_evaluator_type"])
@@ -375,6 +514,9 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
     elif run_config["state_evaluator_type"] in ("Claude", "ClaudeV"):
         judge = GeneralAgent(credentials["claude"], pruning_task, vision_model="claude")
         evaluator_is_visual = (run_config["state_evaluator_type"] == "ClaudeV")
+    elif run_config["state_evaluator_type"] == "ClaudeS":
+        judge = GeneralAgent(credentials["claude"], pruning_task, vision_model="claude-3-5-sonnet-20241022")
+        evaluator_is_visual = True
     else:
         raise ValueError(f"Invalid evaluator: {run_config['state_evaluator_type']}")
 
@@ -382,8 +524,9 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
 
 
     assert thinker_is_visual is not None and evaluator_is_visual is not None, "Remember to assign these variables above."
+    print(evaluator_is_visual, thinker_is_visual)
     if not evaluator_is_visual or not thinker_is_visual:
-        assert target_description is not None, "When either the thinker or evaluator is not visual, make sure that you have the target description."
+        assert target_description is not None, f"When either the {run_config['edit_generator_type']} or {run_config['state_evaluator_type']} is not visual, make sure that you have the target description."
 
     
 

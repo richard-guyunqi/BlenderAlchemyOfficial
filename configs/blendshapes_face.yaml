@@ -3,7 +3,7 @@ task:
 
 
 credentials:
-  openai: creds/openai.txt
+  openai: openai_api.txt
   claude: 
   gemini:
 
@@ -24,11 +24,11 @@ run_config:
   variants: 
     - "tune"
   tree_dims: 
-    - "4x8"
+    - "2x3"
   edit_generator_type: "GPT4V"
   state_evaluator_type: "GPT4V"
 
-  max_concurrent_rendering_processes: 8
-  max_concurrent_evaluation_requests: 4
-  max_concurrent_generator_requests: 8
+  max_concurrent_rendering_processes: 2
+  max_concurrent_evaluation_requests: 1
+  max_concurrent_generator_requests: 2
 
