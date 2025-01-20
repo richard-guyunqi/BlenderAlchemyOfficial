@@ -444,21 +444,23 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
     # Initialize the thinker (code editor and parameter searcher)
     thinker_class_type = GeneralAgent if config["run_config"]["edit_style"] == "rewrite_code" else EditCodeAgent 
 
-    if run_config["edit_generator_type"] == "GPT4V": 
+    if run_config["edit_generator_type"] in ("gpt-4o", "o1", "o1-mini", "gpt-4-turbo"): 
         # Default!
-        param_tuner = thinker_class_type (credentials["openai"], parameter_search_task)
-        agent = thinker_class_type (credentials["openai"], code_editing_task)
-        thinker_is_visual = True 
-    elif run_config["edit_generator_type"] == "GPT4":
+        param_tuner = thinker_class_type (credentials["openai"], parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = thinker_class_type (credentials["openai"], code_editing_task, vision_model=run_config["edit_generator_type"])
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] in ("claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"):
         # tasks stay the same.
-        param_tuner = thinker_class_type (credentials["openai"], parameter_search_task, vision_model="gpt-4")
-        agent = thinker_class_type (credentials["openai"], code_editing_task, vision_model="gpt-4")
-        thinker_is_visual = False
-    elif run_config["edit_generator_type"] in ("Claude", "ClaudeV"):
+        param_tuner = thinker_class_type (credentials["claude"], parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = thinker_class_type (credentials["claude"], code_editing_task, run_config["edit_generator_type"])
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] in ('gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'):
         # tasks stay the same.
-        param_tuner = thinker_class_type (credentials["claude"], parameter_search_task, vision_model="claude")
-        agent = thinker_class_type (credentials["claude"], code_editing_task, vision_model="claude")
-        thinker_is_visual = (run_config["edit_generator_type"] == "ClaudeV")
+        param_tuner = thinker_class_type (credentials["gemini"], parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = thinker_class_type (credentials["gemini"], code_editing_task, run_config["edit_generator_type"])
+        thinker_is_visual = True
 
     elif run_config["edit_generator_type"] == "Intern":
         # tasks stay the same.
@@ -480,7 +482,31 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
 
     elif run_config["edit_generator_type"] == "QwenLlama":
         # tasks stay the same.
-        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='Qwen/Qwen2-VL-7B-Instruct-AWQ')
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "MiniCPM":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='openbmb/MiniCPM-V-2_6-int4')
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "MiniCPMLlama":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "Phi":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model='microsoft/Phi-3.5-vision-instruct')
+        agent = param_tuner
+        thinker_is_visual = True
+
+    elif run_config["edit_generator_type"] == "PhiLlama":
+        # tasks stay the same.
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
         agent = param_tuner
         thinker_is_visual = True
 
@@ -489,36 +515,52 @@ def refinement(config, credentials, breadth, depth, blender_file, blender_script
         agent = param_tuner
         thinker_is_visual = False
     else:
-        raise ValueError(f"Invalid generator: {run_config['edit_generator_type']}")
+        param_tuner = thinker_class_type (None, parameter_search_task, vision_model=run_config["edit_generator_type"])
+
+        # TODO: If your model requires API, you can add credentials["your_model"]
+        # param_tuner = thinker_class_type (credentials["your_model"], parameter_search_task, vision_model=run_config["edit_generator_type"])
+        agent = param_tuner
+        thinker_is_visual = True
 
     # Initialize the state evaluator (pruning task)
-    if run_config["state_evaluator_type"] == "GPT4V":
-        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4-turbo")
+    if run_config["state_evaluator_type"] in ("gpt-4o", "o1", "o1-mini", "gpt-4-turbo"): 
+        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model=run_config["state_evaluator_type"])
         evaluator_is_visual = True
-    elif run_config["state_evaluator_type"] == "GPT4":
-        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4")
-        evaluator_is_visual = False
-    elif run_config["state_evaluator_type"] == "GPT4o":
-        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model="gpt-4o")
+
+    elif run_config["state_evaluator_type"] in ("claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"):
+        judge = GeneralAgent(credentials["claude"], pruning_task, vision_model=run_config["state_evaluator_type"])
         evaluator_is_visual = True
-    elif run_config["state_evaluator_type"] == "Intern":
-        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model='OpenGVLab/InternVL2-8B')
+
+    elif run_config["state_evaluator_type"] in ('gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro'):
+        judge = GeneralAgent(credentials["gemini"], pruning_task, vision_model=run_config["state_evaluator_type"])
         evaluator_is_visual = True
-    elif run_config["state_evaluator_type"] == "InternLlama":
-        judge = GeneralAgent(credentials["openai"], pruning_task, vision_model='OpenGVLab/InternVL2-8B')
+
+    elif run_config["state_evaluator_type"] in ("Intern", "InternLlama"):
+        judge = GeneralAgent(None, pruning_task, vision_model='OpenGVLab/InternVL2-8B')
         evaluator_is_visual = True
+
+    elif run_config["state_evaluator_type"] in ("MiniCPM", "MiniCPMLlama"):
+        judge = GeneralAgent(None, pruning_task, vision_model='openbmb/MiniCPM-V-2_6-int4')
+        evaluator_is_visual = True
+
+    elif run_config["state_evaluator_type"] in ("Qwen", "QwenLlama"):
+        judge = GeneralAgent(None, pruning_task, vision_model='Qwen/Qwen2-VL-7B-Instruct-AWQ')
+        evaluator_is_visual = True
+
+    elif run_config["state_evaluator_type"] in ("Phi", "PhiLlama"):
+        judge = GeneralAgent(None, pruning_task, vision_model='microsoft/Phi-3.5-vision-instruct')
+        evaluator_is_visual = True
+
         # tasks stay the same
     elif run_config["state_evaluator_type"] in ("gemma", "mistral", "llama2"):
         judge = GeneralAgent(None, pruning_task, vision_model=run_config["state_evaluator_type"])
         evaluator_is_visual = False
-    elif run_config["state_evaluator_type"] in ("Claude", "ClaudeV"):
-        judge = GeneralAgent(credentials["claude"], pruning_task, vision_model="claude")
-        evaluator_is_visual = (run_config["state_evaluator_type"] == "ClaudeV")
-    elif run_config["state_evaluator_type"] == "ClaudeS":
-        judge = GeneralAgent(credentials["claude"], pruning_task, vision_model="claude-3-5-sonnet-20241022")
-        evaluator_is_visual = True
+
     else:
-        raise ValueError(f"Invalid evaluator: {run_config['state_evaluator_type']}")
+        judge = GeneralAgent(None, pruning_task, vision_model=run_config["state_evaluator_type"])
+        evaluator_is_visual = True
+
+        # raise ValueError(f"Invalid evaluator: {run_config['state_evaluator_type']}")
 
 
 

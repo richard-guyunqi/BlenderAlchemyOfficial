@@ -17,17 +17,24 @@ from tasksolver.keychain import KeyChain
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='BlenderAlchemy Arguments')
-    parser.add_argument('--starter_blend', type=str, help='path to the base blender file.') # path to the .blend file
-    parser.add_argument('--blender_base', type=str, help='blender base file path.')       # The path of blender-python script
-    parser.add_argument('--blender_script', type=str, help='script to edit.')             # the script to be edited
-    parser.add_argument('--config', type=str, help='path to yaml file.')
+    parser.add_argument('--starter_blend', type=str, default='starter_blends/face_animation.blend', help='path to the base blender file.') # path to the .blend file
+    parser.add_argument('--blender_base', type=str, default= 'blender_base/pipeline_render_script.py', help='blender base file path.')       # The path of blender-python script
+    parser.add_argument('--blender_script', type=str, default='blender_scripts/shapekeys_examples/facialshapekeys.py', help='script to edit.')             # the script to be edited
+    parser.add_argument('--config', type=str, default='configs/blendshapes_face.yaml', help='path to yaml file.')
+    parser.add_argument('--model_name', type=str, default=None, help='Name for your model')
+
     args = parser.parse_args()
+    model_name = args.model_name
 
     with open(args.config) as stream:
         try:
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
             print(exc)
+
+    if model_name:
+        config["run_config"]["edit_generator_type"] = model_name
+        config["run_config"]["state_evaluator_type"] = model_name
 
     # initialize the image generator client
     kc = KeyChain() 
